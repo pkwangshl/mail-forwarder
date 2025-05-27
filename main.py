@@ -11,9 +11,12 @@ app = Flask(__name__)
 
 IMAP_HOST = 'imap.163.com'
 SMTP_HOST = 'smtp.163.com'
-USER = os.environ['EMAIL_USER']
-PASS = os.environ['EMAIL_PASS']
-FORWARD_TO = os.environ['FORWARD_TO']
+USER = os.environ.get('EMAIL_USER')
+PASS = os.environ.get('EMAIL_PASS')
+FORWARD_TO = os.environ.get('FORWARD_TO')
+
+if not USER or not PASS or not FORWARD_TO:
+    raise Exception("环境变量 EMAIL_USER、EMAIL_PASS 或 FORWARD_TO 未设置，请检查 Railway 环境变量设置！")
 
 IMAP_ID = {
     "name": "RailwayScript",
@@ -90,6 +93,5 @@ def home():
     return "Mail forward service running!", 200
 
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get('PORT', 5000))
     app.run(host="0.0.0.0", port=port)

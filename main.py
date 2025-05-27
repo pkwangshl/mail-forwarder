@@ -54,20 +54,20 @@ def fetch_and_forward():
                 email_message['Subject'] = subject
                 email_message['From'] = USER
                 email_message['To'] = FORWARD_TO
-                # 支持多 part 邮件，图片、html、附件等
+                # 兼容所有类型：多 part、html、图片、附件
                 if msg_obj.is_multipart():
-                    # 取出所有 part 并附加
                     for part in msg_obj.walk():
                         if part.get_content_maintype() == 'multipart':
                             continue
                         content_type = part.get_content_type()
                         payload = part.get_payload(decode=True)
                         filename = part.get_filename()
+                        charset = part.get_content_charset() or 'utf-8'
                         if content_type == 'text/html':
-                            html = payload.decode(part.get_content_charset() or 'utf-8', errors='replace')
+                            html = payload.decode(charset, errors='replace')
                             email_message.add_alternative(html, subtype='html')
                         elif content_type == 'text/plain':
-                            text = payload.decode(part.get_content_charset() or 'utf-8', errors='replace')
+                            text = payload.decode(charset, errors='replace')
                             email_message.set_content(text)
                         elif filename:  # 附件
                             email_message.add_attachment(payload,
@@ -77,11 +77,12 @@ def fetch_and_forward():
                 else:
                     content_type = msg_obj.get_content_type()
                     payload = msg_obj.get_payload(decode=True)
+                    charset = msg_obj.get_content_charset() or 'utf-8'
                     if content_type == 'text/html':
-                        html = payload.decode(msg_obj.get_content_charset() or 'utf-8', errors='replace')
+                        html = payload.decode(charset, errors='replace')
                         email_message.add_alternative(html, subtype='html')
                     else:
-                        text = payload.decode(msg_obj.get_content_charset() or 'utf-8', errors='replace')
+                        text = payload.decode(charset, errors='replace')
                         email_message.set_content(text)
                 with smtplib.SMTP_SSL(SMTP_HOST, 465) as smtp:
                     smtp.login(USER, PASS)

@@ -27,6 +27,7 @@ TARGET_SENDER = "info@mergermarket.com"
 def is_japan_rest_time():
     jst = pytz.timezone('Asia/Tokyo')
     now_jst = datetime.now(jst)
+    # 23:50~5:59 休息
     if (now_jst.hour == 23 and now_jst.minute >= 50) or (0 <= now_jst.hour < 6):
         return True
     return False
@@ -54,8 +55,9 @@ def fetch_and_forward():
                 email_message['Subject'] = subject
                 email_message['From'] = USER
                 email_message['To'] = FORWARD_TO
-                # 兼容所有类型：多 part、html、图片、附件
+                # 正确处理 multipart/单 part、HTML、文本和附件
                 if msg_obj.is_multipart():
+                    has_html = False
                     for part in msg_obj.walk():
                         if part.get_content_maintype() == 'multipart':
                             continue
@@ -66,10 +68,11 @@ def fetch_and_forward():
                         if content_type == 'text/html':
                             html = payload.decode(charset, errors='replace')
                             email_message.add_alternative(html, subtype='html')
-                        elif content_type == 'text/plain':
+                            has_html = True
+                        elif content_type == 'text/plain' and not has_html:
                             text = payload.decode(charset, errors='replace')
                             email_message.set_content(text)
-                        elif filename:  # 附件
+                        elif filename:
                             email_message.add_attachment(payload,
                                 maintype=part.get_content_maintype(),
                                 subtype=part.get_content_subtype(),

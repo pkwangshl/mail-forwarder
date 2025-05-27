@@ -11,12 +11,9 @@ app = Flask(__name__)
 
 IMAP_HOST = 'imap.163.com'
 SMTP_HOST = 'smtp.163.com'
-USER = os.environ.get('EMAIL_USER')
-PASS = os.environ.get('EMAIL_PASS')
-FORWARD_TO = os.environ.get('FORWARD_TO')
-
-if not USER or not PASS or not FORWARD_TO:
-    raise Exception("环境变量 EMAIL_USER、EMAIL_PASS 或 FORWARD_TO 未设置，请检查 Railway 环境变量设置！")
+USER = os.environ['EMAIL_USER']
+PASS = os.environ['EMAIL_PASS']
+FORWARD_TO = os.environ['FORWARD_TO']
 
 IMAP_ID = {
     "name": "RailwayScript",
@@ -57,23 +54,35 @@ def fetch_and_forward():
                 email_message['Subject'] = subject
                 email_message['From'] = USER
                 email_message['To'] = FORWARD_TO
-                # 支持多 part 邮件、图片、html等
+                # 支持多 part 邮件，图片、html、附件等
                 if msg_obj.is_multipart():
-                    email_message.set_content('This is a multi-part email. Please view in your mail client.')
+                    # 取出所有 part 并附加
                     for part in msg_obj.walk():
                         if part.get_content_maintype() == 'multipart':
                             continue
-                        email_message.add_attachment(part.get_payload(decode=True),
-                                                     maintype=part.get_content_maintype(),
-                                                     subtype=part.get_content_subtype(),
-                                                     filename=part.get_filename())
+                        content_type = part.get_content_type()
+                        payload = part.get_payload(decode=True)
+                        filename = part.get_filename()
+                        if content_type == 'text/html':
+                            html = payload.decode(part.get_content_charset() or 'utf-8', errors='replace')
+                            email_message.add_alternative(html, subtype='html')
+                        elif content_type == 'text/plain':
+                            text = payload.decode(part.get_content_charset() or 'utf-8', errors='replace')
+                            email_message.set_content(text)
+                        elif filename:  # 附件
+                            email_message.add_attachment(payload,
+                                maintype=part.get_content_maintype(),
+                                subtype=part.get_content_subtype(),
+                                filename=filename)
                 else:
                     content_type = msg_obj.get_content_type()
                     payload = msg_obj.get_payload(decode=True)
                     if content_type == 'text/html':
-                        email_message.add_alternative(payload, subtype='html')
+                        html = payload.decode(msg_obj.get_content_charset() or 'utf-8', errors='replace')
+                        email_message.add_alternative(html, subtype='html')
                     else:
-                        email_message.set_content(payload)
+                        text = payload.decode(msg_obj.get_content_charset() or 'utf-8', errors='replace')
+                        email_message.set_content(text)
                 with smtplib.SMTP_SSL(SMTP_HOST, 465) as smtp:
                     smtp.login(USER, PASS)
                     smtp.send_message(email_message)

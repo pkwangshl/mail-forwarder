@@ -27,7 +27,6 @@ TARGET_SENDER = "info@mergermarket.com"
 def is_japan_rest_time():
     jst = pytz.timezone('Asia/Tokyo')
     now_jst = datetime.now(jst)
-    # 23:50~5:59 休息
     if (now_jst.hour == 23 and now_jst.minute >= 50) or (0 <= now_jst.hour < 6):
         return True
     return False
@@ -55,9 +54,10 @@ def fetch_and_forward():
                 email_message['Subject'] = subject
                 email_message['From'] = USER
                 email_message['To'] = FORWARD_TO
-                # 正确处理 multipart/单 part、HTML、文本和附件
+                # --- 新版兼容所有内容且不报错 ---
+                html_content = None
+                text_content = None
                 if msg_obj.is_multipart():
-                    has_html = False
                     for part in msg_obj.walk():
                         if part.get_content_maintype() == 'multipart':
                             continue
@@ -66,12 +66,15 @@ def fetch_and_forward():
                         filename = part.get_filename()
                         charset = part.get_content_charset() or 'utf-8'
                         if content_type == 'text/html':
-                            html = payload.decode(charset, errors='replace')
-                            email_message.add_alternative(html, subtype='html')
-                            has_html = True
-                        elif content_type == 'text/plain' and not has_html:
-                            text = payload.decode(charset, errors='replace')
-                            email_message.set_content(text)
+                            try:
+                                html_content = payload.decode(charset, errors='replace')
+                            except Exception:
+                                html_content = payload.decode('utf-8', errors='replace')
+                        elif content_type == 'text/plain':
+                            try:
+                                text_content = payload.decode(charset, errors='replace')
+                            except Exception:
+                                text_content = payload.decode('utf-8', errors='replace')
                         elif filename:
                             email_message.add_attachment(payload,
                                 maintype=part.get_content_maintype(),
@@ -82,11 +85,21 @@ def fetch_and_forward():
                     payload = msg_obj.get_payload(decode=True)
                     charset = msg_obj.get_content_charset() or 'utf-8'
                     if content_type == 'text/html':
-                        html = payload.decode(charset, errors='replace')
-                        email_message.add_alternative(html, subtype='html')
+                        try:
+                            html_content = payload.decode(charset, errors='replace')
+                        except Exception:
+                            html_content = payload.decode('utf-8', errors='replace')
                     else:
-                        text = payload.decode(charset, errors='replace')
-                        email_message.set_content(text)
+                        try:
+                            text_content = payload.decode(charset, errors='replace')
+                        except Exception:
+                            text_content = payload.decode('utf-8', errors='replace')
+
+                if text_content:
+                    email_message.set_content(text_content)
+                if html_content:
+                    email_message.add_alternative(html_content, subtype='html')
+
                 with smtplib.SMTP_SSL(SMTP_HOST, 465) as smtp:
                     smtp.login(USER, PASS)
                     smtp.send_message(email_message)

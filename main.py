@@ -46,16 +46,16 @@ def decode_payload(part):
     txt = str(raw)
     return txt, charset, txt.encode(charset, errors="replace")
 
-def safe_add_alternative(msg, payload, charset):
-    # 兼容Python3.12 bytes场景，不会抛出maintype错误
+def add_html_alternative(msg, payload, charset):
+    # Python3.12 不允许 bytes + charset, 需拆分
     if isinstance(payload, bytes):
-        msg.add_alternative(payload, maintype="text", subtype="html", charset=charset)
+        msg.add_alternative(payload, maintype="text", subtype="html")
     else:
         msg.add_alternative(payload, subtype="html", charset=charset)
 
-def safe_set_content(msg, payload, charset):
+def set_plain_content(msg, payload, charset):
     if isinstance(payload, bytes):
-        msg.set_content(payload, maintype="text", subtype="plain", charset=charset)
+        msg.set_content(payload, maintype="text", subtype="plain")
     else:
         msg.set_content(payload, subtype="plain", charset=charset)
 
@@ -66,10 +66,10 @@ def copy_parts(src: email.message.Message, dst: EmailMessage):
         nonlocal text_done, html_done
 
         if ctype == "text/html" and not html_done:
-            safe_add_alternative(dst, raw if raw else text, charset)
+            add_html_alternative(dst, raw if raw else text, charset)
             html_done = True
         elif ctype == "text/plain" and not text_done:
-            safe_set_content(dst, raw if raw else text, charset)
+            set_plain_content(dst, raw if raw else text, charset)
             text_done = True
         return ctype
 
@@ -135,31 +135,31 @@ def fetch_and_forward():
                 continue
 
             log.info("Forwarding email from %s", sender)
+            fwd = EmailMessage()
+            fwd["Subject"] = subject
+            fwd["From"]    = USER
 
-            # 循环每个收件人单独发一封
-            for addr in FORWARD_TO.split(","):
-                addr = addr.strip()
-                if not addr:
-                    continue
-                fwd = EmailMessage()
-                fwd["Subject"] = subject
-                fwd["From"]    = USER
-                fwd["To"]      = addr
-                fwd["Date"]    = email.utils.formatdate(localtime=True)
-                try:
-                    copy_parts(orig, fwd)
-                except Exception:
-                    log.exception("copy_parts() failed, fallback to .eml attachment.")
-                    fwd.set_content("原始邮件作为附件保留。")
-                    fwd.add_attachment(data[b"RFC822"],
-                                       maintype="message",
-                                       subtype="rfc822",
-                                       filename="original.eml")
+            # 多个收件人用BCC，避免互相可见
+            to_addrs = [addr.strip() for addr in FORWARD_TO.split(",") if addr.strip()]
+            fwd["To"] = to_addrs[0]
+            if len(to_addrs) > 1:
+                fwd["Bcc"] = ",".join(to_addrs[1:])
+            fwd["Date"]    = email.utils.formatdate(localtime=True)
 
-                with smtplib.SMTP_SSL(SMTP_HOST, 465) as smtp:
-                    smtp.login(USER, PASS)
-                    smtp.send_message(fwd)
-                log.info(f"Mail forwarded to {addr}.")
+            try:
+                copy_parts(orig, fwd)
+            except Exception:
+                log.exception("copy_parts() failed, fallback to .eml attachment.")
+                fwd.set_content("原始邮件作为附件保留。")
+                fwd.add_attachment(data[b"RFC822"],
+                                   maintype="message",
+                                   subtype="rfc822",
+                                   filename="original.eml")
+
+            with smtplib.SMTP_SSL(SMTP_HOST, 465) as smtp:
+                smtp.login(USER, PASS)
+                smtp.send_message(fwd)
+            log.info("Mail forwarded.")
 
             imap.add_flags(uid, [b"\\Seen"])
         return "All mails processed"

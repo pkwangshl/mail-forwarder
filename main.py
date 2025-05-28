@@ -19,7 +19,7 @@ TARGET_SENDER = os.environ.get("TARGET_SENDER", "info@mergermarket.com").lower()
 
 IMAP_ID = {
     "name":          "CloudForwarder",
-    "version":       "1.3.0",
+    "version":       "1.4.0",
     "vendor":        "Railway",
     "support-email": USER,
 }
@@ -58,31 +58,32 @@ def copy_parts(src: email.message.Message, dst: EmailMessage):
     def handle_body(ctype, maintype, subtype, text, charset, raw):
         nonlocal text_done, html_done
 
+        # 特判“伪 HTML”
         if ctype == "text/plain" and looks_like_html(raw) and not html_done:
             ctype, subtype, maintype = "text/html", "html", "text"
 
         # HTML正文
         if ctype == "text/html" and not html_done:
-            if text and isinstance(text, str):
-                dst.add_alternative(text, subtype="html", charset=charset)
-            elif raw and isinstance(raw, bytes):
+            if isinstance(raw, bytes) and raw:
                 try:
-                    payload_str = raw.decode(charset, errors="replace")
-                    dst.add_alternative(payload_str, subtype="html", charset=charset)
+                    s = raw.decode(charset, errors="replace")
+                    dst.add_alternative(s, subtype="html", charset=charset)
                 except Exception:
                     dst.add_alternative(raw, maintype="text", subtype="html", charset=charset)
+            else:
+                dst.add_alternative(text, subtype="html", charset=charset)
             html_done = True
 
         # 纯文本正文
         elif ctype == "text/plain" and not text_done:
-            if text and isinstance(text, str):
-                dst.set_content(text, subtype="plain", charset=charset)
-            elif raw and isinstance(raw, bytes):
+            if isinstance(raw, bytes) and raw:
                 try:
-                    payload_str = raw.decode(charset, errors="replace")
-                    dst.set_content(payload_str, subtype="plain", charset=charset)
+                    s = raw.decode(charset, errors="replace")
+                    dst.set_content(s, subtype="plain", charset=charset)
                 except Exception:
                     dst.set_content(raw, maintype="text", subtype="plain", charset=charset)
+            else:
+                dst.set_content(text, subtype="plain", charset=charset)
             text_done = True
 
         return ctype

@@ -50,14 +50,14 @@ def fetch_and_forward():
             subject = msg_obj.get('Subject', '').replace('\n', '').replace('\r', '')
             if sender.lower() == TARGET_SENDER:
                 print(f"Forwarding email from {sender}")
-                email_message = EmailMessage()
-                email_message['Subject'] = subject
-                email_message['From'] = USER
-                email_message['To'] = FORWARD_TO
-                # --- 新版兼容所有内容且不报错 ---
-                html_content = None
-                text_content = None
+                forward_msg = EmailMessage()
+                forward_msg['Subject'] = subject
+                forward_msg['From'] = USER
+                forward_msg['To'] = FORWARD_TO
+
+                # 直接将原邮件所有内容和附件全部拷贝进来
                 if msg_obj.is_multipart():
+                    # 按照原邮件的多 part 结构复制内容
                     for part in msg_obj.walk():
                         if part.get_content_maintype() == 'multipart':
                             continue
@@ -65,44 +65,38 @@ def fetch_and_forward():
                         payload = part.get_payload(decode=True)
                         filename = part.get_filename()
                         charset = part.get_content_charset() or 'utf-8'
+                        maintype = part.get_content_maintype()
+                        subtype = part.get_content_subtype()
+                        # 富文本（html）或纯文本
                         if content_type == 'text/html':
                             try:
-                                html_content = payload.decode(charset, errors='replace')
+                                forward_msg.add_alternative(payload.decode(charset, errors='replace'), subtype='html')
                             except Exception:
-                                html_content = payload.decode('utf-8', errors='replace')
+                                forward_msg.add_alternative(payload.decode('utf-8', errors='replace'), subtype='html')
                         elif content_type == 'text/plain':
                             try:
-                                text_content = payload.decode(charset, errors='replace')
+                                forward_msg.set_content(payload.decode(charset, errors='replace'))
                             except Exception:
-                                text_content = payload.decode('utf-8', errors='replace')
-                        elif filename:
-                            email_message.add_attachment(payload,
-                                maintype=part.get_content_maintype(),
-                                subtype=part.get_content_subtype(),
-                                filename=filename)
+                                forward_msg.set_content(payload.decode('utf-8', errors='replace'))
+                        # 其他附件、图片（包括 inline）
+                        elif filename or maintype in ['image', 'application']:
+                            forward_msg.add_attachment(payload,
+                                                      maintype=maintype,
+                                                      subtype=subtype,
+                                                      filename=filename)
                 else:
+                    # 单 part 邮件
                     content_type = msg_obj.get_content_type()
                     payload = msg_obj.get_payload(decode=True)
                     charset = msg_obj.get_content_charset() or 'utf-8'
                     if content_type == 'text/html':
-                        try:
-                            html_content = payload.decode(charset, errors='replace')
-                        except Exception:
-                            html_content = payload.decode('utf-8', errors='replace')
+                        forward_msg.add_alternative(payload.decode(charset, errors='replace'), subtype='html')
                     else:
-                        try:
-                            text_content = payload.decode(charset, errors='replace')
-                        except Exception:
-                            text_content = payload.decode('utf-8', errors='replace')
-
-                if text_content:
-                    email_message.set_content(text_content)
-                if html_content:
-                    email_message.add_alternative(html_content, subtype='html')
+                        forward_msg.set_content(payload.decode(charset, errors='replace'))
 
                 with smtplib.SMTP_SSL(SMTP_HOST, 465) as smtp:
                     smtp.login(USER, PASS)
-                    smtp.send_message(email_message)
+                    smtp.send_message(forward_msg)
                 print("Mail forwarded.")
             else:
                 print(f"Skipped mail from {sender}")

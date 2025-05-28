@@ -1,25 +1,14 @@
 import os
-from flask import Flask, request
 import requests
 
-TOKEN = os.environ['TELEGRAM_BOT_TOKEN']
-app = Flask(__name__)
-
-@app.route(f"/{TOKEN}", methods=["POST"])
-def webhook():
-    data = request.get_json()
-    chat_id = data["message"]["chat"]["id"]
-    text = data["message"].get("text", "")
-    # 回复消息，显示 chat_id
-    requests.post(
-        f"https://api.telegram.org/bot{TOKEN}/sendMessage",
-        json={"chat_id": chat_id, "text": f"你的 chat_id: {chat_id}\n你发的内容：{text}"}
-    )
-    return "ok", 200
-
-@app.route("/")
-def home():
-    return "ok", 200
-
-if __name__ == "__main__":
-    app.run(port=8080)
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+offset = 0
+while True:
+    resp = requests.get(f"https://api.telegram.org/bot{TOKEN}/getUpdates?offset={offset}").json()
+    for result in resp.get("result", []):
+        message = result.get("message", {})
+        chat = message.get("chat", {})
+        print("chat_id:", chat.get("id"), "message:", message.get("text"))
+        offset = result["update_id"] + 1
+    if not resp.get("result"):
+        break

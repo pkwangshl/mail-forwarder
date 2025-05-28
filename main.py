@@ -18,7 +18,7 @@ TARGET_SENDER = os.environ.get("TARGET_SENDER", "info@mergermarket.com").lower()
 
 IMAP_ID = {
     "name": "CloudForwarder",
-    "version": "6.0.0",
+    "version": "7.0.0",
     "vendor": "Railway",
     "support-email": USER,
 }
@@ -47,7 +47,7 @@ def decode_payload(part):
     return txt, charset, txt.encode(charset, errors="replace")
 
 def safe_add_alternative(msg, payload, charset):
-    # 兼容Python3.12 bytes场景，不会抛出maintype错误
+    # 避免Python3.12 bytes错误
     if isinstance(payload, bytes):
         msg.add_alternative(payload, maintype="text", subtype="html", charset=charset)
     else:
@@ -173,5 +173,5 @@ def home():
     return "Mail forward service is running!", 200
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 5000))  # 重点！端口不能写死
     app.run(host="0.0.0.0", port=port)

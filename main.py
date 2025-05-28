@@ -56,7 +56,6 @@ def fetch_and_forward():
                 forward_msg['To'] = FORWARD_TO
 
                 if msg_obj.is_multipart():
-                    # 用于存储是否添加过正文
                     text_added = False
                     html_added = False
                     for part in msg_obj.walk():
@@ -69,17 +68,25 @@ def fetch_and_forward():
                         # html
                         if content_type == 'text/html' and not html_added:
                             try:
-                                forward_msg.add_alternative(payload.decode(charset, errors='replace'), subtype='html')
+                                if isinstance(payload, bytes):
+                                    payload_str = payload.decode(charset, errors='replace')
+                                else:
+                                    payload_str = str(payload)
+                                forward_msg.add_alternative(payload_str, subtype='html')
                                 html_added = True
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                print('add_alternative html error:', e)
                         # plain text
                         elif content_type == 'text/plain' and not text_added:
                             try:
-                                forward_msg.set_content(payload.decode(charset, errors='replace'))
+                                if isinstance(payload, bytes):
+                                    payload_str = payload.decode(charset, errors='replace')
+                                else:
+                                    payload_str = str(payload)
+                                forward_msg.set_content(payload_str)
                                 text_added = True
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                print('set_content plain error:', e)
                         # 图片、附件
                         elif filename or maintype in ['image', 'application']:
                             if payload:
@@ -87,18 +94,25 @@ def fetch_and_forward():
                                     maintype=maintype,
                                     subtype=subtype,
                                     filename=filename)
-                    # 兼容极端情况下没有正文只有附件
+                    # 没正文补充提示
                     if not html_added and not text_added:
                         forward_msg.set_content("邮件内容为纯附件或图片。")
                 else:
-                    # 非multipart
                     content_type = msg_obj.get_content_type()
                     payload = msg_obj.get_payload(decode=True)
                     charset = msg_obj.get_content_charset() or 'utf-8'
                     if content_type == 'text/html':
-                        forward_msg.add_alternative(payload.decode(charset, errors='replace'), subtype='html')
+                        if isinstance(payload, bytes):
+                            payload_str = payload.decode(charset, errors='replace')
+                        else:
+                            payload_str = str(payload)
+                        forward_msg.add_alternative(payload_str, subtype='html')
                     else:
-                        forward_msg.set_content(payload.decode(charset, errors='replace'))
+                        if isinstance(payload, bytes):
+                            payload_str = payload.decode(charset, errors='replace')
+                        else:
+                            payload_str = str(payload)
+                        forward_msg.set_content(payload_str)
 
                 with smtplib.SMTP_SSL(SMTP_HOST, 465) as smtp:
                     smtp.login(USER, PASS)

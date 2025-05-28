@@ -19,7 +19,7 @@ TARGET_SENDER = os.environ.get("TARGET_SENDER", "info@mergermarket.com").lower()
 
 IMAP_ID = {
     "name":          "CloudForwarder",
-    "version":       "1.2.1",
+    "version":       "1.2.2",
     "vendor":        "Railway",
     "support-email": USER,
 }
@@ -58,22 +58,23 @@ def copy_parts(src: email.message.Message, dst: EmailMessage):
     def handle_body(ctype, maintype, subtype, text, charset, raw):
         nonlocal text_done, html_done
         if ctype == "text/plain" and looks_like_html(raw) and not html_done:
-            ctype, subtype = "text/html", "html"
+            ctype, subtype, maintype = "text/html", "html", "text"
 
-        # --- HTML
+        # HTML正文
         if ctype == "text/html" and not html_done:
-            if text:
+            if isinstance(text, str) and text:
                 dst.add_alternative(text, subtype="html", charset=charset)
-            elif raw:
+            elif isinstance(raw, bytes) and raw:
                 dst.add_alternative(raw, maintype="text", subtype="html", charset=charset)
             html_done = True
-        # --- 纯文本
+        # 纯文本正文
         elif ctype == "text/plain" and not text_done:
-            if text:
+            if isinstance(text, str) and text:
                 dst.set_content(text, subtype="plain", charset=charset)
-            elif raw:
+            elif isinstance(raw, bytes) and raw:
                 dst.set_content(raw, maintype="text", subtype="plain", charset=charset)
             text_done = True
+
         return ctype
 
     if src.is_multipart():
@@ -88,8 +89,7 @@ def copy_parts(src: email.message.Message, dst: EmailMessage):
 
             final_ctype = handle_body(ctype, maintype, subtype, text, charset, raw)
 
-            if ((filename or maintype in {"image", "application",
-                                          "audio", "video"})
+            if ((filename or maintype in {"image", "application", "audio", "video"})
                     and final_ctype == ctype and raw):
                 dst.add_attachment(
                     raw,

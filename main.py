@@ -19,7 +19,7 @@ TARGET_SENDER = os.environ.get("TARGET_SENDER", "info@mergermarket.com").lower()
 
 IMAP_ID = {
     "name":          "CloudForwarder",
-    "version":       "1.4.0",
+    "version":       "1.4.1",
     "vendor":        "Railway",
     "support-email": USER,
 }
@@ -48,7 +48,9 @@ def decode_payload(part):
     txt = str(raw)
     return txt, charset, txt.encode(charset, errors="replace")
 
-HTML_LIKE = re.compile(rb"(?i)\A\s*<(?:!doctype\s+html|html|head|body)")
+# ---- 更宽松的 HTML 判定 ----
+HTML_LIKE = re.compile(rb"(?i)\A\s*<(?:!doctype\s*html?|html|head|body)")
+
 def looks_like_html(raw: bytes) -> bool:
     return bool(HTML_LIKE.match(raw))
 

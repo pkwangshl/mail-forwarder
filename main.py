@@ -1,5 +1,4 @@
 import os
-import re
 import logging
 from datetime import datetime
 from flask import Flask
@@ -19,7 +18,7 @@ TARGET_SENDER = os.environ.get("TARGET_SENDER", "info@mergermarket.com").lower()
 
 IMAP_ID = {
     "name": "CloudForwarder",
-    "version": "1.5.0",
+    "version": "2.1.0",
     "vendor": "Railway",
     "support-email": USER,
 }
@@ -47,12 +46,6 @@ def decode_payload(part):
     txt = str(raw)
     return txt, charset, txt.encode(charset, errors="replace")
 
-# ---- 更宽松的 HTML 判定 ----
-HTML_LIKE = re.compile(rb"(?i)\A\s*<(?:!doctype\s*html?|html|head|body)")
-
-def looks_like_html(raw: bytes) -> bool:
-    return bool(HTML_LIKE.match(raw))
-
 def safe_add_alternative(msg, payload, charset):
     if isinstance(payload, bytes):
         msg.add_alternative(payload, maintype="text", subtype="html", charset=charset)
@@ -71,15 +64,10 @@ def copy_parts(src: email.message.Message, dst: EmailMessage):
     def handle_body(ctype, maintype, subtype, text, charset, raw):
         nonlocal text_done, html_done
 
-        if ctype == "text/plain" and looks_like_html(raw) and not html_done:
-            ctype, subtype, maintype = "text/html", "html", "text"
-
-        # HTML正文
+        # 判断是不是html内容
         if ctype == "text/html" and not html_done:
             safe_add_alternative(dst, raw if raw else text, charset)
             html_done = True
-
-        # 纯文本正文
         elif ctype == "text/plain" and not text_done:
             safe_set_content(dst, raw if raw else text, charset)
             text_done = True
@@ -95,9 +83,7 @@ def copy_parts(src: email.message.Message, dst: EmailMessage):
             subtype  = part.get_content_subtype()
             filename = part.get_filename()
             text, charset, raw = decode_payload(part)
-
             final_ctype = handle_body(ctype, maintype, subtype, text, charset, raw)
-
             if ((filename or maintype in {"image", "application", "audio", "video"})
                 and final_ctype == ctype and raw):
                 dst.add_attachment(
@@ -112,16 +98,13 @@ def copy_parts(src: email.message.Message, dst: EmailMessage):
         maintype = src.get_content_maintype()
         subtype  = src.get_content_subtype()
         text, charset, raw = decode_payload(src)
-
         final_ctype = handle_body(ctype, maintype, subtype, text, charset, raw)
-
         if final_ctype == ctype and maintype not in {"text"}:
             dst.set_content("邮件内容为纯附件或图片。")
             dst.add_attachment(raw,
                                maintype=maintype,
                                subtype=subtype,
                                filename=src.get_filename())
-
     if not html_done and not text_done and not dst.get_content():
         dst.set_content("邮件内容为纯附件或图片。")
 

@@ -18,7 +18,7 @@ TARGET_SENDER = os.environ.get("TARGET_SENDER", "info@mergermarket.com").lower()
 
 IMAP_ID = {
     "name": "CloudForwarder",
-    "version": "6.0.0",
+    "version": "7.0.0",
     "vendor": "Railway",
     "support-email": USER,
 }
@@ -46,29 +46,24 @@ def decode_payload(part):
     txt = str(raw)
     return txt, charset, txt.encode(charset, errors="replace")
 
-def safe_add_alternative(msg, payload, charset):
-    if isinstance(payload, bytes):
-        msg.add_alternative(payload, maintype="text", subtype="html", charset=charset)
-    else:
-        msg.add_alternative(payload, subtype="html", charset=charset)
-
-def safe_set_content(msg, payload, charset):
-    if isinstance(payload, bytes):
-        msg.set_content(payload, maintype="text", subtype="plain", charset=charset)
-    else:
-        msg.set_content(payload, subtype="plain", charset=charset)
-
 def copy_parts(src: email.message.Message, dst: EmailMessage):
     text_done = html_done = False
 
     def handle_body(ctype, maintype, subtype, text, charset, raw):
         nonlocal text_done, html_done
 
+        # 新增判断: 只对str文本用charset, bytes用原生
         if ctype == "text/html" and not html_done:
-            safe_add_alternative(dst, raw if raw else text, charset)
+            if isinstance(raw, bytes):
+                dst.add_alternative(raw, maintype="text", subtype="html")
+            else:
+                dst.add_alternative(text, subtype="html", charset=charset)
             html_done = True
         elif ctype == "text/plain" and not text_done:
-            safe_set_content(dst, raw if raw else text, charset)
+            if isinstance(raw, bytes):
+                dst.set_content(raw, maintype="text", subtype="plain")
+            else:
+                dst.set_content(text, subtype="plain", charset=charset)
             text_done = True
         return ctype
 
@@ -82,6 +77,7 @@ def copy_parts(src: email.message.Message, dst: EmailMessage):
             filename = part.get_filename()
             text, charset, raw = decode_payload(part)
             final_ctype = handle_body(ctype, maintype, subtype, text, charset, raw)
+            # 附件
             if ((filename or maintype in {"image", "application", "audio", "video"})
                 and final_ctype == ctype and raw):
                 dst.add_attachment(
@@ -103,6 +99,7 @@ def copy_parts(src: email.message.Message, dst: EmailMessage):
                                maintype=maintype,
                                subtype=subtype,
                                filename=src.get_filename())
+    # 防止无内容
     if not html_done and not text_done and not dst.get_content():
         dst.set_content("邮件内容为纯附件或图片。")
 
@@ -144,7 +141,8 @@ def fetch_and_forward():
                 copy_parts(orig, fwd)
             except Exception:
                 log.exception("copy_parts() failed, fallback to .eml attachment.")
-                fwd.set_content("原始邮件作为附件保留。")
+                # fallback附件方式, multipart不能set_content
+                fwd.set_content("原始邮件作为附件保留。".encode("utf-8"))
                 fwd.add_attachment(data[b"RFC822"],
                                    maintype="message",
                                    subtype="rfc822",
@@ -172,5 +170,5 @@ def home():
     return "Mail forward service is running!", 200
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))   # Railway新版域名默认8080
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)

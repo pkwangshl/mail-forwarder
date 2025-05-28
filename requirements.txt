@@ -2,3 +2,4 @@ flask
 imapclient
 pytz
 requests
+bs4

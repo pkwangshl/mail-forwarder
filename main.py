@@ -16,9 +16,9 @@ PASS = os.environ['EMAIL_PASS']
 FORWARD_TO = os.environ['FORWARD_TO']
 
 IMAP_ID = {
-    "name": "RailwayScript",
+    "name": "CloudForwarder",
     "version": "1.0.0",
-    "vendor": "Railway",
+    "vendor": "RailwayOrReplit",
     "support-email": USER
 }
 
@@ -55,37 +55,43 @@ def fetch_and_forward():
                 forward_msg['From'] = USER
                 forward_msg['To'] = FORWARD_TO
 
-                # 直接将原邮件所有内容和附件全部拷贝进来
                 if msg_obj.is_multipart():
-                    # 按照原邮件的多 part 结构复制内容
+                    # 用于存储是否添加过正文
+                    text_added = False
+                    html_added = False
                     for part in msg_obj.walk():
-                        if part.get_content_maintype() == 'multipart':
-                            continue
                         content_type = part.get_content_type()
                         payload = part.get_payload(decode=True)
-                        filename = part.get_filename()
                         charset = part.get_content_charset() or 'utf-8'
+                        filename = part.get_filename()
                         maintype = part.get_content_maintype()
                         subtype = part.get_content_subtype()
-                        # 富文本（html）或纯文本
-                        if content_type == 'text/html':
+                        # html
+                        if content_type == 'text/html' and not html_added:
                             try:
                                 forward_msg.add_alternative(payload.decode(charset, errors='replace'), subtype='html')
+                                html_added = True
                             except Exception:
-                                forward_msg.add_alternative(payload.decode('utf-8', errors='replace'), subtype='html')
-                        elif content_type == 'text/plain':
+                                pass
+                        # plain text
+                        elif content_type == 'text/plain' and not text_added:
                             try:
                                 forward_msg.set_content(payload.decode(charset, errors='replace'))
+                                text_added = True
                             except Exception:
-                                forward_msg.set_content(payload.decode('utf-8', errors='replace'))
-                        # 其他附件、图片（包括 inline）
+                                pass
+                        # 图片、附件
                         elif filename or maintype in ['image', 'application']:
-                            forward_msg.add_attachment(payload,
-                                                      maintype=maintype,
-                                                      subtype=subtype,
-                                                      filename=filename)
+                            if payload:
+                                forward_msg.add_attachment(payload,
+                                    maintype=maintype,
+                                    subtype=subtype,
+                                    filename=filename)
+                    # 兼容极端情况下没有正文只有附件
+                    if not html_added and not text_added:
+                        forward_msg.set_content("邮件内容为纯附件或图片。")
                 else:
-                    # 单 part 邮件
+                    # 非multipart
                     content_type = msg_obj.get_content_type()
                     payload = msg_obj.get_payload(decode=True)
                     charset = msg_obj.get_content_charset() or 'utf-8'

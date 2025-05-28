@@ -18,7 +18,7 @@ TARGET_SENDER = os.environ.get("TARGET_SENDER", "info@mergermarket.com").lower()
 
 IMAP_ID = {
     "name": "CloudForwarder",
-    "version": "2.1.0",
+    "version": "3.0.0",
     "vendor": "Railway",
     "support-email": USER,
 }
@@ -64,14 +64,13 @@ def copy_parts(src: email.message.Message, dst: EmailMessage):
     def handle_body(ctype, maintype, subtype, text, charset, raw):
         nonlocal text_done, html_done
 
-        # 判断是不是html内容
+        # 自动判断并处理 HTML/纯文本
         if ctype == "text/html" and not html_done:
             safe_add_alternative(dst, raw if raw else text, charset)
             html_done = True
         elif ctype == "text/plain" and not text_done:
             safe_set_content(dst, raw if raw else text, charset)
             text_done = True
-
         return ctype
 
     if src.is_multipart():

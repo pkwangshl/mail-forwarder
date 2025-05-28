@@ -9,7 +9,7 @@ from email.message import EmailMessage
 import pytz
 
 IMAP_HOST = "imap.163.com"
-SMTP_HOST = "smtp.163.com"
+SMTP_HOST = "smtp.163.com" 
 
 USER = os.environ["EMAIL_USER"]
 PASS = os.environ["EMAIL_PASS"]

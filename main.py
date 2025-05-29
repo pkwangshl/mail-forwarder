@@ -1,64 +1,71 @@
 import os
+import logging
+from datetime import datetime
 from flask import Flask
 from imapclient import IMAPClient
-import email
-from datetime import datetime
 import pytz
 import requests
-import logging
 
-IMAP_HOST = "imap.163.com"
-USER = os.environ["EMAIL_USER"]
-PASS = os.environ["EMAIL_PASS"]
+# 配置环境变量
+IMAP_HOST = os.environ.get("IMAP_HOST")          # 比如 imap.qq.com
+IMAP_PORT = int(os.environ.get("IMAP_PORT", "993"))
+EMAIL_USER = os.environ.get("EMAIL_USER")        # QQ邮箱地址
+EMAIL_PASS = os.environ.get("EMAIL_PASS")        # 授权码
 TARGET_SENDER = os.environ.get("TARGET_SENDER", "info@mergermarket.com").lower()
-ALLOWED_CHAT_IDS = os.environ.get("ALLOWED_CHAT_IDS", "").split(",")
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+ALLOWED_CHAT_IDS = os.environ.get("ALLOWED_CHAT_IDS", "")  # 逗号分隔，多个
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+log = logging.getLogger("mail-forwarder")
 
-def in_japan_night():
+def in_japan_night() -> bool:
     jst = pytz.timezone("Asia/Tokyo")
     now = datetime.now(jst)
     return (now.hour == 23 and now.minute >= 50) or (0 <= now.hour < 6)
 
-def send_telegram(title):
-    jst = pytz.timezone("Asia/Tokyo")
-    now_str = datetime.now(jst).strftime('%Y-%m-%d %H:%M:%S')
-    text = f"【MergerMarket新邮件】\n标题: {title}\n时间: {now_str}"
-    for chat_id in ALLOWED_CHAT_IDS:
-        chat_id = chat_id.strip()
-        if chat_id:
-            try:
-                requests.post(
-                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-                    json={"chat_id": chat_id, "text": text}
-                )
-            except Exception as e:
-                logging.error(f"Failed to send telegram to {chat_id}: {e}")
+def send_to_telegram(subject, dt_str):
+    chat_ids = [cid.strip() for cid in ALLOWED_CHAT_IDS.split(",") if cid.strip()]
+    if not chat_ids:
+        log.warning("No ALLOWED_CHAT_IDS set, skip telegram send.")
+        return
+    text = f"新邮件（{dt_str} JST）：\n{subject}"
+    for chat_id in chat_ids:
+        try:
+            resp = requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json={"chat_id": chat_id, "text": text}
+            )
+            log.info(f"Sent to Telegram chat_id={chat_id}, resp={resp.status_code}")
+        except Exception as e:
+            log.error(f"Send to Telegram chat_id={chat_id} error: {e}")
 
 def fetch_and_forward():
     if in_japan_night():
-        logging.info("夜间暂停窗口，跳过轮询。")
+        log.info("夜间暂停窗口，跳过轮询。")
         return "Rest time"
-    with IMAPClient(IMAP_HOST) as imap:
-        imap.login(USER, PASS)
+
+    with IMAPClient(IMAP_HOST, port=IMAP_PORT, ssl=True) as imap:
+        imap.login(EMAIL_USER, EMAIL_PASS)
         imap.select_folder("INBOX")
         uids = imap.search(["UNSEEN"])
         if not uids:
-            logging.info("No new mail.")
+            log.info("No new mail.")
             return "No new mail"
-        logging.info(f"Found {len(uids)} new mails.")
-        for uid, data in imap.fetch(uids, ["RFC822"]).items():
-            orig = email.message_from_bytes(data[b"RFC822"])
-            sender = email.utils.parseaddr(orig.get("From"))[1].lower()
-            subject = (orig.get("Subject", "") or "").replace("\r", "").replace("\n", "")
-            if sender != TARGET_SENDER:
-                logging.info(f"Skip mail from {sender}")
+
+        log.info("Found %d new mails.", len(uids))
+        for uid, data in imap.fetch(uids, ["RFC822", "ENVELOPE"]).items():
+            envelope = data[b"ENVELOPE"]
+            sender = envelope.from_[0].mailbox.decode() + "@" + envelope.from_[0].host.decode()
+            subject = envelope.subject.decode(errors="ignore") if envelope.subject else ""
+            if sender.lower() != TARGET_SENDER:
+                log.info(f"Skip mail from {sender}")
                 imap.add_flags(uid, [b"\\Seen"])
                 continue
-            logging.info(f"Forwarding email from {sender}, title: {subject}")
-            send_telegram(subject)
+
+            dt = envelope.date.astimezone(pytz.timezone("Asia/Tokyo"))
+            dt_str = dt.strftime("%Y-%m-%d %H:%M")
+            send_to_telegram(subject, dt_str)
             imap.add_flags(uid, [b"\\Seen"])
         return "All mails processed"
 
@@ -68,7 +75,7 @@ def trigger():
         res = fetch_and_forward()
         return f"Mail Check Result: {res}", 200
     except Exception as exc:
-        logging.exception("Unhandled error in /trigger")
+        log.exception("Unhandled error in /trigger")
         return f"Error: {exc}", 500
 
 @app.route("/")
